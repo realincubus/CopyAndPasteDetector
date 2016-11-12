@@ -76,15 +76,15 @@ public:
 
       int n_children_expr = std::distance( expr->child_begin(), expr->child_end() );
       if ( n_children_expr == 0 ) {
-        LOGD << "found another node that is similar to the target";
-        expr->dump();      
+        //LOGD << "found another node that is similar to the target";
+        //expr->dump();      
         similar_expressions[target].push_back(expr);
       }else{
 
         // number of children has to be the same
         int n_children_target = std::distance( target->child_begin(), target->child_end() );
         if ( n_children_target == n_children_expr ) {
-          LOGD << "number of children is the same";
+          //LOGD << "number of children is the same";
 
           bool all_children_similar = true;
           // iterate over both
@@ -96,9 +96,9 @@ public:
 
             // all children need to be similar
             if ( auto set = find_set( (Expr*)*tchild ) ) {
-              LOGD << "found the set for the target";
+              //LOGD << "found the set for the target";
               if ( set->find( (Expr*) *echild ) != set->end() ) {
-                LOGD << "found that expr child is in the same set as targets child";
+                //LOGD << "found that expr child is in the same set as targets child";
               }else{
                 all_children_similar = false;
                 break;
@@ -134,7 +134,8 @@ class Callback : public MatchFinder::MatchCallback {
     Callback ( ASTContext& _clang_ctx ) :
       clang_ctx(_clang_ctx) 
     {
-
+      auto& ctr = getCounterSingleton( );
+      ctr = 0;
     }
     // is the function that is called if the matcher finds something
     virtual void run(const MatchFinder::MatchResult& Result) {
@@ -151,17 +152,19 @@ class Callback : public MatchFinder::MatchCallback {
           } 
         }
 
-        expr->dump();
-        // TODO visitor to find other expressions that have the same type but not the same 
-        // pointer identity
+        getCounterSingleton()++;
+
         ExpressionVisitor expression_visitor(expr);
         auto tu = context.getTranslationUnitDecl();
         expression_visitor.TraverseDecl( tu );
-        LOGD << "\n";
       }
-
-
     }
+
+    long& getCounterSingleton( ) {
+      static long ctr = 0;
+      return ctr;
+    } 
+
   private:
     ASTContext& clang_ctx;
 
@@ -174,11 +177,9 @@ public:
   
   ForLoopConsumer(  ) 
   { 
-    LOGD << "for loop consumer created " << this ;
   }
 
   ~ForLoopConsumer(){
-    LOGD << "for loop consumer destroyed " << this ;
   }
 
 
@@ -196,6 +197,30 @@ public:
   // match all expressions
   StatementMatcher makeExprMatcher(){
     return expr( ).bind("expr");
+  }
+
+  void print_compression_results( SourceManager& SM ) {
+#if 0
+    LOGD << "there are " << similar_sets.size() << "sets" ;
+    int ctr = 0;
+    for( auto&& similar_set : similar_sets ){
+      LOGD << "set " << ctr++; 
+      for( auto&& element : similar_set ){
+          LOGD << element;
+      }
+    }
+#endif
+
+    LOGD << "largest statements that are similar";
+    auto& similar_set = similar_sets.back();
+    for( auto&& element : similar_set ){
+      auto sloc = element->getLocStart();
+      LOGD << "starting at " << sloc.printToString( SM );
+      element->dumpColor();
+    }
+    
+
+
   }
 
   void compress_results() {
@@ -217,17 +242,7 @@ public:
         similar_sets.push_back( set );
       }
     }
-     
-    LOGD << "there are " << similar_sets.size() << "sets" ;
-    int ctr = 0;
-    for( auto&& similar_set : similar_sets ){
-      LOGD << "set " << ctr++; 
-      for( auto&& element : similar_set ){
-          LOGD << element;
-      }
-      
-    }
-
+   
     similar_expressions.clear();
     
   }
@@ -255,9 +270,8 @@ public:
       Callback Fixer(clang_ctx);
       Finder.addMatcher( makeLeafMatcher(), &Fixer);
       Finder.matchAST(clang_ctx);
+      LOGD << "nodes handled " << Fixer.getCounterSingleton();
     }
-
-    print_similar_expressions();
 
     // now do this for some steps
     while ( true ) {
@@ -270,8 +284,10 @@ public:
       Callback Fixer(clang_ctx);
       Finder.addMatcher( makeExprMatcher(), &Fixer);
       Finder.matchAST(clang_ctx);
-      print_similar_expressions();
+      LOGD << "nodes handled " << Fixer.getCounterSingleton();
     }
+
+    print_compression_results(clang_ctx.getSourceManager());
 
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> diff = end-begin;
